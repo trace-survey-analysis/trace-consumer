@@ -1,0 +1,72 @@
+void setBuildStatus(String message, String state) {
+    def repoUrl = scm.getUserRemoteConfigs()[0].getUrl()
+    
+    echo "DEBUG: Repository URL detected: ${repoUrl}"
+  step([
+      $class: "GitHubCommitStatusSetter",
+      reposSource: [$class: "ManuallyEnteredRepositorySource", url: repoUrl],
+      contextSource: [$class: "ManuallyEnteredCommitContextSource", context: "ci/jenkins/build-status"],
+      errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
+      statusResultSource: [ $class: "ConditionalStatusResultSource", results: [[$class: "AnyBuildResult", message: message, state: state]] ]
+  ]);
+}
+
+
+pipeline {
+    agent any
+    
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
+    }
+    stages {
+        stage('Initialize Build') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'github-pat', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
+                    setBuildStatus("Build is starting...'", "PENDING");
+                }
+            }
+        }
+        stage('Checkout Code') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('PR Validation') {
+            steps {
+                script {
+                    echo "This is a PR validation for PR#${env.CHANGE_ID}"
+                    
+                    // Build using Dockerfile
+                    sh 'docker build --no-cache -t trace-consumer:${BUILD_NUMBER} .'
+                    
+                    // Install test dependencies and run checks
+                    sh '''
+                    docker run --rm trace-consumer:${BUILD_NUMBER} sh -c "
+                        pip install black &&
+                        python -m black --check *.py models/ services/ utils/"
+                    '''
+                    // Clean up the Docker image after tests
+                    sh '''docker rmi trace-consumer:${BUILD_NUMBER} || true'''
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+                withCredentials([usernamePassword(credentialsId: 'github-pat', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
+                    setBuildStatus("Build succeeded'", "SUCCESS");
+                }
+        }
+        failure {
+            withCredentials([usernamePassword(credentialsId: 'github-pat', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
+                setBuildStatus("Build failed'", "FAILURE");
+            }
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
