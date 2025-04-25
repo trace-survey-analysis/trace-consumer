@@ -1,12 +1,19 @@
 # TRACE Survey Consumer
 
+![Python](https://img.shields.io/badge/Python-3776AB.svg?style=for-the-badge&logo=python&logoColor=white)
+![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-231F20.svg?style=for-the-badge&logo=apache-kafka&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED.svg?style=for-the-badge&logo=docker&logoColor=white)
+![Jenkins](https://img.shields.io/badge/Jenkins-D24939.svg?style=for-the-badge&logo=jenkins&logoColor=white)
+![Semantic Release](https://img.shields.io/badge/Semantic_Release-494949.svg?style=for-the-badge&logo=semantic-release&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1.svg?style=for-the-badge&logo=postgresql&logoColor=white)
+
 This service consumes processed trace survey data from Kafka and stores it in a PostgreSQL database.
 
 ## Overview
 
 The TRACE Survey Consumer application is responsible for:
 
-1. Consuming processed trace survey data from the `trace-survey-processed` Kafka topic
+1. Consuming processed trace survey data from the `trace-survey-processed` Kafka topic (published by [trace-processor](https://github.com/cyse7125-sp25-team03/trace-processor.git))
 2. Validating and transforming the data into appropriate database models
 3. Storing the data in a PostgreSQL database in a dedicated `trace` schema
 4. Tracking processed messages to ensure idempotency (no duplicate processing)
@@ -33,7 +40,7 @@ The service consists of the following components:
 
 ## Data Flow
 
-1. A message is received from the `trace-survey-processed` Kafka topic containing structured trace data
+1. A message is received from the `trace-survey-processed` Kafka topic (from [trace-processor](https://github.com/cyse7125-sp25-team03/trace-processor.git)) containing structured trace data
 2. The data is validated and converted to database models
 3. A transaction is started and the data is stored in the database:
    - Store instructor information (or retrieve existing)
@@ -43,6 +50,7 @@ The service consists of the following components:
    - Store comments
    - Record the trace ID as processed
 4. The transaction is committed
+5. After data is stored, it becomes available for analysis by the [embedding-service](https://github.com/cyse7125-sp25-team03/embedding-service.git)
 
 ## Configuration
 
@@ -69,13 +77,9 @@ The service is configured using environment variables:
 
 ## Database Setup
 
-The application expects the database schema to be created before running. The SQL migration script (`schema.sql`) should be run to create the necessary tables:
+The application expects the database schema to be created before running. The database migrations are managed by the [db-trace-processor](https://github.com/cyse7125-sp25-team03/db-trace-processor.git) repository.
 
-```bash
-psql -U postgres -d trace_db -f schema.sql
-```
-
-This will create the `trace` schema and all required tables.
+The migrations create the `trace` schema and all required tables.
 
 ## Health Checks
 
@@ -90,15 +94,17 @@ The application provides the following health check endpoints:
 
 - Python 3.10+
 - PostgreSQL database
+- Kafka
 
 ### Setup
 
 1. Clone the repository
-2. Create a PostgreSQL database and run the schema migration:
    ```
-   psql -U postgres -d trace_db -f schema.sql
+   git clone https://github.com/cyse7125-sp25-team03/trace-consumer.git
+   cd trace-consumer
    ```
-3. Install dependencies:
+   
+2. Install dependencies:
    ```
    pip install -r requirements.txt
    ```
@@ -129,10 +135,24 @@ docker run -p 8082:8082 \
 
 ### Kubernetes Deployment
 
-The service can be deployed to Kubernetes using Helm:
+The service can be deployed to Kubernetes using Helm charts from the [helm-charts](https://github.com/cyse7125-sp25-team03/helm-charts.git) repository:
 
+```bash
+# Clone the helm-charts repository
+git clone https://github.com/cyse7125-sp25-team03/helm-charts.git
+
+# Install the trace-consumer chart
+helm install trace-consumer ./trace-consumer -n trace-consumer
 ```
-helm upgrade --install trace-consumer ./helm/trace-consumer
+
+Alternatively, you can add the Helm repository and install directly:
+
+```bash
+# Add the Helm repository
+helm repo add team03 https://github.com/cyse7125-sp25-team03/helm-charts
+
+# Install the trace-consumer chart
+helm install trace-consumer team03/trace-consumer -n trace-consumer
 ```
 
 ## Input Message Format
@@ -186,3 +206,15 @@ The consumer expects messages from the `trace-survey-processed` topic in the fol
   "error": "string"
 }
 ```
+
+## CI/CD and Releases
+
+This project uses Jenkins for continuous integration and Semantic Release for versioning:
+
+- When a pull request is successfully merged, a Docker image is built
+- The Semantic Versioning bot creates a release on GitHub with a tag
+- The tagged release is used for the Docker image, which is then pushed to Docker Hub
+
+## License
+
+This project is licensed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.
